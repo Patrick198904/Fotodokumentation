@@ -856,6 +856,9 @@ async function importOne(z,man,c){
    const parts=nm.split('/'),name=parts.pop();if(!parts.length||!/\.(jpe?g|png|webp)$/i.test(name)||/_markiert\.\w+$/i.test(name))continue;
    if(/^Plan_/i.test(name)){if(!man.plans[nm])man.plans[nm]={mt:0};continue}
    const o=old[nm]||{};man.photos[name]={p:parts.join('/'),t:o.t,mt:0,an:o.an||[],pv:o.pv,m:null,f:1,mk:z.has(parts.join('/')+'/'+markName(name))?1:0}}}
+ if(c.restore){const ph=Object.entries(man.photos||{}).map(([n,r])=>({n,p:r.p.split('/')})),pk=Object.keys(man.plans||{}),fo=(man.folders||[]).map(f=>f.p.split('/'));
+  const hit=t=>t.k==='p'?ph.some(x=>x.n===t.name):t.k==='plan'?pk.some(k=>{const q=k.split('/'),n=q.pop();return n===t.name&&J(q)===J(t.fp||[])}):t.k==='f'?(ph.some(x=>pf(t.fp,x.p))||fo.some(f=>pf(t.fp,f))):false;
+  for(const t of items.filter(i=>i.type==='tomb'&&hit(i))){items=items.filter(i=>i!==t);await del(t.id)}}
  for(const t of man.tombs||[]){const id='t:'+t.k+':'+(t.name||'')+':'+J(t.fp||[]),x=items.find(i=>i.id===id);
   if(!x){const q={id,type:'tomb',path:[],k:t.k,name:t.name,fp:t.fp,mt:t.mt};items.push(q);await put(q,true)}
   else if(t.mt>x.mt){x.mt=t.mt;await put(x,true)}}
@@ -896,6 +899,9 @@ async function importZips(files){
  for(const f of files){const z=await readZip(f);zs.push({z,m:z.has('_raumfotos.json')?JSON.parse(await z.text('_raumfotos.json')):{}})}
  zs.sort((a,b)=>(a.m.at||0)-(b.m.at||0));
  const c={add:0,upd:0,del:0,sk:0,np:0,nop:0};let i=0;
+ let blocked=0;for(const q of zs){for(const[n,r]of Object.entries(q.m.photos||{})){const tb=items.find(x=>x.type==='tomb'&&x.k==='p'&&x.name===n);if(tb&&tb.mt>=(r.mt||0)){blocked++;continue}
+  const pa=r.p.split('/');if(items.some(x=>x.type==='tomb'&&x.k==='f'&&pf(x.fp,pa)&&x.mt>=(r.mt||0)))blocked++}}
+ if(blocked&&confirm(`${blocked} Foto${blocked==1?'':'s'} aus dieser Sicherung wurde${blocked==1?'':'n'} hier gelöscht und würde${blocked==1?'':'n'} normalerweise nicht wieder importiert.\n\nJetzt wiederherstellen?`))c.restore=true;
  for(const q of zs){msg(`Importiere Datei ${++i} von ${zs.length} …`);await importOne(q.z,q.m,c)}
  msg(`${c.add} Foto${c.add==1?'':'s'} neu, ${c.upd} aktualisiert, ${c.del} gelöscht, ${c.np} ${c.np==1?'Plan':'Pläne'} neu, ${c.sk} unverändert${c.nop?`, ${c.nop} ohne Bilddatei übersprungen (dafür die Vollsicherung importieren)`:''}.`)}
 const applyPm=(o,r)=>{if('ms' in r){o.ms=r.ms||[];o.sc=r.sc||null;o.mw=r.mw||null;o.cal=r.cal||'';o.pw=r.pw||null;o.ph=r.ph||null}

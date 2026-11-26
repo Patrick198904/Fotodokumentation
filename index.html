@@ -818,7 +818,7 @@ async function addTomb(t){
  if(!x){x={id,type:'tomb',path:[],...t};items.push(x)}else Object.assign(x,t);
  await put(x)}
 function changedSince(s){return items.filter(x=>(x.type==='tomb'&&x.mt>s)||((x.type==='p'||x.type==='plan'||x.type==='f')&&pf(P,x.path)&&M(x)>s)).length}
-async function exportZip(share,allf){
+async function exportZip(share,allf,dir){
  const last=+ls(bkKey())||0,since=allf?0:last,t0=Date.now();
  const ps=photosIn(P).filter(p=>M(p)>since),pls=sub(P).filter(x=>x.type==='plan'&&M(x)>since),fo=sub(P).filter(x=>x.type==='f'&&M(x)>since);
  const tb=items.filter(x=>x.type==='tomb'&&x.mt>since);
@@ -840,9 +840,26 @@ async function exportZip(share,allf){
   man.plans[d+x.name]={vs:vmeta(x),vd:x.vdel||[],v:x.v,fmt:x.fmt||'',mt:M(x),f:bytes?1:0,sc:x.sc||null,mw:x.mw||null,cal:x.cal||'',pw:x.pw||null,ph:x.ph||null,ms:x.ms||[]}}
  add('_raumfotos.json',te.encode(JSON.stringify(man)));
  const who=(cfg().by||'Handy').replace(/[^\wäöüÄÖÜß\-]/g,'_'),sc=(P.length?P.join('_'):'Alles').replace(/[^\wäöüÄÖÜß\- ]/g,'_');
- const ok=await deliver(zipBlob(files),`Sicherung_${who}_${sc}_${new Date().toISOString().slice(0,10)}_${since?'Änderungen':'Voll'}.zip`,share);
- if(ok){ls(bkKey(),String(t0));msg(`Sicherung erstellt: ${ps.length} Foto${ps.length==1?'':'s'}, ${pls.length} ${pls.length==1?'Plan':'Pläne'}${since?' (nur Änderungen)':''}.`)}
+ const zfn=`Sicherung_${who}_${sc}_${new Date().toISOString().slice(0,10)}_${new Date().toTimeString().slice(0,5).replace(':','')}_${since?'Änderungen':'Voll'}.zip`,zb=zipBlob(files);
+ let ok;if(dir){try{ok=await saveDir(zb,zfn)}catch(e){if(e.name==='AbortError')ok=false;else throw e}}else ok=await deliver(zb,zfn,share);
+ if(ok){ls(bkKey(),String(t0));if(dir)ls('imp:'+zfn+':'+zb.size,'1');msg(`Sicherung${dir?' im Sync-Ordner':''} erstellt: ${ps.length} Foto${ps.length==1?'':'s'}, ${pls.length} ${pls.length==1?'Plan':'Pläne'}${since?' (nur Änderungen)':''}.`)}
  else msg('Abgebrochen – die Sicherung wurde nicht als erledigt vermerkt.')}
+/* ---------- Sync-Ordner (File System Access) ---------- */
+const cdb2=()=>new Promise((res,rej)=>{const q=indexedDB.open('fd_cfg',1);q.onupgradeneeded=()=>q.result.createObjectStore('k');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
+const cget=async k=>{const d=await cdb2();return new Promise(r=>{const q=d.transaction('k').objectStore('k').get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>r()})};
+const cput=async(k,v)=>{const d=await cdb2();return new Promise(r=>{const t=d.transaction('k','readwrite');t.objectStore('k').put(v,k);t.oncomplete=()=>r()})};
+async function dirHandle(pick){
+ if(!window.showDirectoryPicker)throw new Error('Sync-Ordner geht nur in Edge/Chrome am PC oder Tablet.');
+ let h=await cget('dir');
+ if(h&&!pick){if(await h.queryPermission({mode:'readwrite'})!=='granted'&&await h.requestPermission({mode:'readwrite'})!=='granted')h=null}
+ if(!h||pick){h=await showDirectoryPicker({mode:'readwrite',id:'fdsync'});await cput('dir',h)}
+ return h}
+async function saveDir(blob,fn){const h=await dirHandle(false),f=await h.getFileHandle(fn,{create:true}),w=await f.createWritable();await w.write(blob);await w.close();return true}
+async function loadDir(){
+ const h=await dirHandle(false),fs=[],keys=[];
+ for await(const [n,e] of h.entries())if(e.kind==='file'&&/^Sicherung_.*\.zip$/i.test(n)){const f=await e.getFile(),k='imp:'+n+':'+f.size;if(ls(k))continue;fs.push(f);keys.push(k)}
+ if(!fs.length)return msg('Im Sync-Ordner ist nichts Neues – alle Sicherungen wurden schon geladen.');
+ await importZips(fs);keys.forEach(k=>ls(k,'1'))}
 async function annot(p,r,z){
  const mk=r.p+'/'+markName(r.name),has=(r.an||[]).length&&z.has(mk),clr=!(r.an||[]).length&&(p.an||[]).length;
  if(has){await full(p);if(!(p.an||[]).length&&!p.d0)p.d0=p.d;p.an=r.an;const x=await proc(new Blob([await z.get(mk)],{type:'image/jpeg'}));p.d=x.d;p.th=x.th}
@@ -856,9 +873,6 @@ async function importOne(z,man,c){
    const parts=nm.split('/'),name=parts.pop();if(!parts.length||!/\.(jpe?g|png|webp)$/i.test(name)||/_markiert\.\w+$/i.test(name))continue;
    if(/^Plan_/i.test(name)){if(!man.plans[nm])man.plans[nm]={mt:0};continue}
    const o=old[nm]||{};man.photos[name]={p:parts.join('/'),t:o.t,mt:0,an:o.an||[],pv:o.pv,m:null,f:1,mk:z.has(parts.join('/')+'/'+markName(name))?1:0}}}
- if(c.restore){const ph=Object.entries(man.photos||{}).map(([n,r])=>({n,p:r.p.split('/')})),pk=Object.keys(man.plans||{}),fo=(man.folders||[]).map(f=>f.p.split('/'));
-  const hit=t=>t.k==='p'?ph.some(x=>x.n===t.name):t.k==='plan'?pk.some(k=>{const q=k.split('/'),n=q.pop();return n===t.name&&J(q)===J(t.fp||[])}):t.k==='f'?(ph.some(x=>pf(t.fp,x.p))||fo.some(f=>pf(t.fp,f))):false;
-  for(const t of items.filter(i=>i.type==='tomb'&&hit(i))){items=items.filter(i=>i!==t);await del(t.id)}}
  for(const t of man.tombs||[]){const id='t:'+t.k+':'+(t.name||'')+':'+J(t.fp||[]),x=items.find(i=>i.id===id);
   if(!x){const q={id,type:'tomb',path:[],k:t.k,name:t.name,fp:t.fp,mt:t.mt};items.push(q);await put(q,true)}
   else if(t.mt>x.mt){x.mt=t.mt;await put(x,true)}}
@@ -899,9 +913,6 @@ async function importZips(files){
  for(const f of files){const z=await readZip(f);zs.push({z,m:z.has('_raumfotos.json')?JSON.parse(await z.text('_raumfotos.json')):{}})}
  zs.sort((a,b)=>(a.m.at||0)-(b.m.at||0));
  const c={add:0,upd:0,del:0,sk:0,np:0,nop:0};let i=0;
- let blocked=0;for(const q of zs){for(const[n,r]of Object.entries(q.m.photos||{})){const tb=items.find(x=>x.type==='tomb'&&x.k==='p'&&x.name===n);if(tb&&tb.mt>=(r.mt||0)){blocked++;continue}
-  const pa=r.p.split('/');if(items.some(x=>x.type==='tomb'&&x.k==='f'&&pf(x.fp,pa)&&x.mt>=(r.mt||0)))blocked++}}
- if(blocked&&confirm(`${blocked} Foto${blocked==1?'':'s'} aus dieser Sicherung wurde${blocked==1?'':'n'} hier gelöscht und würde${blocked==1?'':'n'} normalerweise nicht wieder importiert.\n\nJetzt wiederherstellen?`))c.restore=true;
  for(const q of zs){msg(`Importiere Datei ${++i} von ${zs.length} …`);await importOne(q.z,q.m,c)}
  msg(`${c.add} Foto${c.add==1?'':'s'} neu, ${c.upd} aktualisiert, ${c.del} gelöscht, ${c.np} ${c.np==1?'Plan':'Pläne'} neu, ${c.sk} unverändert${c.nop?`, ${c.nop} ohne Bilddatei übersprungen (dafür die Vollsicherung importieren)`:''}.`)}
 const applyPm=(o,r)=>{if('ms' in r){o.ms=r.ms||[];o.sc=r.sc||null;o.mw=r.mw||null;o.cal=r.cal||'';o.pw=r.pw||null;o.ph=r.ph||null}
@@ -924,12 +935,22 @@ function backupView(){
  <div class="mu" id="mg">${last?'Letzte Sicherung: '+new Date(last).toLocaleString('de-AT'):'Noch keine Sicherung für diesen Ordner.'}<br>${ch} Änderung${ch==1?'':'en'} seitdem.</div>
  <button id="k1">Nur Änderungen speichern</button><button class="s" id="k2">Nur Änderungen teilen</button>
  <button class="s" id="k3">Alles speichern (Vollsicherung)</button><button class="s" id="k4">Alles teilen</button>
+ <h3 style="margin:10px 0 2px">Sync-Ordner (z. B. OneDrive-Ordner)</h3>
+ <div class="mu" id="dn">Ordner wird geprüft …</div>
+ <button class="s" id="d0">Sync-Ordner wählen</button>
+ <button class="s" id="d1">Änderungen in Sync-Ordner sichern</button><button class="s" id="d2">Vollsicherung in Sync-Ordner</button>
+ <button class="s" id="d3">Aus Sync-Ordner laden</button>
  <label class="btn">Sicherung(en) importieren<input type="file" id="zi" accept=".zip,application/zip" multiple hidden></label>
  <div class="mu">Beim Import kannst du mehrere Dateien auf einmal wählen. Die App sortiert sie nach dem Datum der Sicherung. Bei Änderungen gewinnt immer die neuere.</div>
  <button class="s" id="k5">Zurück</button>`);
  $('#k1').onclick=guard(()=>exportZip(false,false));$('#k2').onclick=guard(()=>exportZip(true,false));
  $('#k3').onclick=guard(()=>exportZip(false,true));$('#k4').onclick=guard(()=>exportZip(true,true));
  $('#zi').onchange=guard(async e=>{const fs=[...e.target.files];e.target.value='';if(fs.length){await importZips(fs);view(true)}});
+ $('#d0').onclick=guard(async()=>{try{const h=await dirHandle(true);$('#dn').textContent='Ordner: '+h.name}catch(e){if(e.name!=='AbortError')throw e}});
+ $('#d1').onclick=guard(()=>exportZip(false,false,true));$('#d2').onclick=guard(()=>exportZip(false,true,true));
+ $('#d3').onclick=guard(async()=>{try{await loadDir();view(true)}catch(e){if(e.name!=='AbortError')throw e}});
+ (async()=>{const e=$('#dn');if(!e)return;if(!window.showDirectoryPicker){e.textContent='Nur in Edge/Chrome am PC oder Tablet verfügbar.';['d0','d1','d2','d3'].forEach(i=>$('#'+i).style.display='none');return}
+  try{const h=await cget('dir');e.textContent=h?'Ordner: '+h.name+'. Sichern legt dort neue ZIP-Dateien ab, Laden liest nur noch nicht geladene.':'Noch kein Ordner gewählt.'}catch(_){e.textContent=''}})();
  $('#k5').onclick=moreView}
 
 function addrView(){

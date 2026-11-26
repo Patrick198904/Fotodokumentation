@@ -650,7 +650,7 @@ function editView(p,op){const pl=op&&op.plan;
   <div class="mu" id="hint" style="font-size:13px"></div>
   <div class="row" style="align-items:center;gap:6px"><span style="flex:0 0 92px;font-size:13px">Strichstärke <b id="lv">${lw}</b></span><input type="range" id="lw" min="1" max="10" step="1" value="${lw}" style="flex:1"></div>
   <div class="row" style="align-items:center;gap:6px"><span style="flex:0 0 92px;font-size:13px">Schriftgröße <b id="fv">${fz}</b></span><input type="range" id="fz" min="1" max="10" step="1" value="${fz}" style="flex:1"></div>
-  <div id="cz" style="overflow:hidden;touch-action:none;line-height:0;text-align:center;background:#000;border-radius:4px"><canvas id="cv" width="${W}" height="${H}" style="max-width:100%;max-height:${pl?52:42}vh;background:#000;touch-action:none;transform-origin:0 0"></canvas></div>
+  <div id="cz" style="position:relative;overflow:hidden;touch-action:none;line-height:0;text-align:center;background:#000;border-radius:4px"><canvas id="cv" width="${W}" height="${H}" style="max-width:100%;max-height:${pl?52:42}vh;background:#000;touch-action:none;transform-origin:0 0"></canvas></div>
   <div class="row" style="gap:6px"><button class="s cp" id="zi">＋</button><button class="s cp" id="zo">－</button><button class="s cp" id="zr">Ganzer Plan</button><span class="mu" style="font-size:12px;align-self:center">Zoom: zwei Finger oder ＋ / －</span></div>
   <div class="row" style="gap:6px;flex-wrap:wrap"><button class="s cp" id="ud">↶ Rückgängig</button><button class="s cp" id="rd">↷ Wiederholen</button><button class="s cp" id="cl">Alles löschen</button></div>
   <div class="row" style="gap:6px"><button class="cp" id="sv">Fertig</button><button class="s cp" id="ab">Abbrechen</button></div>`);
@@ -970,8 +970,9 @@ function zoomBox(box,inner,onTap){
   s=s2;tx=x-px*s;ty=y-py*s;if(s<=1.001){s=1;tx=0;ty=0}apply()};
  box.onpointerdown=e=>{ps.set(e.pointerId,{x:e.clientX,y:e.clientY});moved=ps.size>1;st={x:e.clientX,y:e.clientY,tx,ty}};
  box.onpointermove=e=>{if(!ps.has(e.pointerId))return;const n={x:e.clientX,y:e.clientY};
-  if(ps.size===2){const[a,b]=[...ps.values()],d0=Math.hypot(a.x-b.x,a.y-b.y);ps.set(e.pointerId,n);
-   const[a2,b2]=[...ps.values()],d1=Math.hypot(a2.x-b2.x,a2.y-b2.y);moved=true;if(d0>0)zoomAt((a2.x+b2.x)/2,(a2.y+b2.y)/2,d1/d0);return}
+  if(ps.size===2){const[a,b]=[...ps.values()],d0=Math.hypot(a.x-b.x,a.y-b.y),m0={x:(a.x+b.x)/2,y:(a.y+b.y)/2};ps.set(e.pointerId,n);
+   const[a2,b2]=[...ps.values()],d1=Math.hypot(a2.x-b2.x,a2.y-b2.y),m1={x:(a2.x+b2.x)/2,y:(a2.y+b2.y)/2};moved=true;
+   if(d0>0)zoomAt(m1.x,m1.y,d1/d0);if(s>1){tx+=m1.x-m0.x;ty+=m1.y-m0.y;apply()}return}
   ps.set(e.pointerId,n);
   if(!moved&&Math.hypot(n.x-st.x,n.y-st.y)>8){moved=true;try{box.setPointerCapture(e.pointerId)}catch(_){}}
   if(moved&&s>1){tx=st.tx+n.x-st.x;ty=st.ty+n.y-st.y;apply()}};
